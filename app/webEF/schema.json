@@ -1,0 +1,31 @@
+{
+	"name": "db",
+	"version": 1,
+	"schema": {
+		"item": {
+			"id": "pkey, index",
+			"description": "string, null",
+			"deadline": "date",
+			"done": "boolean",
+			"userId": "fkey: user.id",
+			"user":"nav->user: item.userId",
+			"tasks":"nav->task: task.itemId",
+			"_ix": "dbtimestamp, index",
+			"_rm": "isdeleted, index"
+		},
+		"task": {
+			"id": "pkey, index",
+			"itemId": "fkey:item.id",
+			"description": "string",
+			"done": "boolean",
+			"_ix": "dbtimestamp, index",
+			"_rm": "isdeleted, index"
+		},
+		"user": {
+			"id": "pkey, index",
+			"name": "string",
+			"_ix": "dbtimestamp, index",
+			"_rm": "isdeleted, index"		
+		}
+	}
+}
