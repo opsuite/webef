@@ -1,7 +1,7 @@
 /// <reference path="../typings/tsd.d.ts" />
 import 'google/lovefield';
 
-export module webef {
+module webef {
 // exports
 export interface DBEntity<T, T_CTX> {
     put(entity: T): Promise<number>;
@@ -993,3 +993,4 @@ export class Load {
     }    
 }
 }
+export default webef;

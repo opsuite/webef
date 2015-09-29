@@ -1,5 +1,5 @@
 /// <reference path="../typings/tsd.d.ts" />
-export declare module webef {
+declare module webef {
     interface DBEntity<T, T_CTX> {
         put(entity: T): Promise<number>;
         put(entities: T[]): Promise<number[]>;
@@ -53,3 +53,4 @@ export declare module webef {
         static json(url: string, async?: boolean, cache?: boolean): any;
     }
 }
+export default webef;

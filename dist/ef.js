@@ -882,5 +882,7 @@ define(["require", "exports", 'google/lovefield'], function (require, exports) {
             return Load;
         })();
         webef.Load = Load;
-    })(webef = exports.webef || (exports.webef = {}));
+    })(webef || (webef = {}));
+    Object.defineProperty(exports, "__esModule", { value: true });
+    exports.default = webef;
 });
