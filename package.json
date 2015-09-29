@@ -2,14 +2,14 @@
   "name": "webef",
   "version": "1.0.0",
   "description": "Entity Framework for the web. Built on Google Lovefield",
-  "main": "app/ef.ts",
+  "main": "dist/ef.min.js",
   "dependencies": {},
   "devDependencies": {
-    "browser-sync": "^2.9.3",
     "gulp": "^3.9.0",
-    "gulp-sane-watch": "^1.0.0",
+    "gulp-rename": "^1.2.2",
     "gulp-tsd": "0.0.4",
     "gulp-typescript": "^2.8.2",
+    "gulp-uglify": "^1.4.1",
     "jspm": "^0.16.2",
     "jspm-bower": "0.0.3",
     "merge2": "^0.3.6"
