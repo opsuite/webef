@@ -1,5 +1,5 @@
-/// <reference path="../../../typings/tsd.d.ts" />
-import './lovefield.js';
+/// <reference path="../../typings/tsd.d.ts" />
+import 'google/lovefield';
 
 // exports
 export interface DBEntity<T, T_CTX> {
