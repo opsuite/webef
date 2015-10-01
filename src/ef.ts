@@ -1,6 +1,7 @@
 /// <reference path="../typings/tsd.d.ts" />
 import 'google/lovefield';
 
+
 // exports
 export interface DBEntity<T, T_CTX> {
     put(entity: T): Promise<number>;
@@ -10,6 +11,7 @@ export interface DBEntity<T, T_CTX> {
     delete(id: number): Promise<T>;
     delete(id?: number[]): Promise<T[]>;
     query( fn: (context:T_CTX, query:DBQuery<T>)=>any): Promise<T[]>;
+    count( fn: (context:T_CTX, query:DBCount<T>)=>any): Promise<number>;
 }
 export interface DBQuery<T> {
     groupBy(...columns: lf.schema.Column[]): DBQuery<T>
@@ -20,6 +22,12 @@ export interface DBQuery<T> {
     explain():string
     toSql():string
     exec() : Promise<T[]>
+}
+export interface DBCount<T> {
+    where(predicate: lf.Predicate): DBCount<T>
+    explain():string
+    toSql():string
+    exec():number;
 }
 
 interface DBModel {}
@@ -203,14 +211,18 @@ export class DBContext<T_CTX> {
     private loading: boolean = false;
     private loaded: boolean = false;
     
-    constructor(dbName: string, dbStoreType?: lf.schema.DataStoreType) {       
+    constructor(dbName: string, dbStoreType?: lf.schema.DataStoreType, dbSizeMB?: number) {       
         this.context = new DBContextInternal();
-        this.context.dbStoreType = dbStoreType || lf.schema.DataStoreType.WEB_SQL; 
+        this.context.dbStoreType = (dbStoreType===undefined) ? lf.schema.DataStoreType.WEB_SQL : dbStoreType; 
         this.context.dbInstance = DBSchemaInternal.instanceMap[dbName];         
-                   
+        var dbSize = (dbSizeMB || 1) * 1024 * 1024; /* db size 1024*1024 = 1MB */
+        
+        var self = this;
         this.ready = new Promise((resolve,reject)=>{
             try{
-            this.context.dbInstance.schemaBuilder.connect({ storeType: this.context.dbStoreType })
+            this.context.dbInstance.schemaBuilder.connect({ 
+                storeType: self.context.dbStoreType,
+                webSqlDbSize: dbSize })
             .then(db => { 
                 this.context.db = db;
                 
@@ -283,7 +295,10 @@ class DBContextInternal {
     
     public compose(table: string, rows: Object[], fkmap: Object) : Object[] {
                   
-        var key = fkmap[table].column2;        
+        var map =fkmap[table];
+        // if there are no foreign keys there is nothing more to compose
+        if (map === undefined) return rows;
+        var key = map.column2;        
 
         // entities
         const entities: Object[] = [];
@@ -330,16 +345,20 @@ class DBContextInternal {
         {
             var nav = navs[column];
             var child = row[nav.tableName];
-            if (nav.isArray){
-                if (undefined === parent[nav.columnName])
-                    parent[nav.columnName] = [child]
-                else 
-                    parent[nav.columnName].push(child);
+            
+            // bug? in some cases child is undefined
+            if (child){
+                if (nav.isArray){
+                    if (undefined === parent[nav.columnName])
+                        parent[nav.columnName] = [child]
+                    else 
+                        parent[nav.columnName].push(child);
+                }
+                else {
+                    parent[nav.columnName] = child;
+                }
+                this.compose_(nav.tableName, row, child)
             }
-            else {
-                parent[nav.columnName] = child;
-            }
-            this.compose_(nav.tableName, row, child)
             
         }
     }
@@ -494,7 +513,11 @@ class DBEntityInternal<T, T_CTX> implements DBEntity<T, T_CTX> {
         });
         //console.log(this.tables);
        
-        
+        /*
+        console.group(this.tableName);        
+        console.log(this.fkmap);
+        console.groupEnd();
+        */
         ready.then(()=>{
             // map tables for joins
             var tableSchema = context.tableSchemaMap[this.tableName];
@@ -742,7 +765,7 @@ class DBEntityInternal<T, T_CTX> implements DBEntity<T, T_CTX> {
    
     public query( context: (ctx:T_CTX, query:DBQuery<T>)=>any ): Promise<T[]> {
         var db = this.context.db;
-        var table = this.context.tableSchemaMap[this.tableName];//db.getSchema().table(this.tableName);         
+        var table = this.context.tableSchemaMap[this.tableName];
         var query = this._query(db,table);    
         
         return context(<T_CTX>this.tblmap, 
@@ -750,11 +773,23 @@ class DBEntityInternal<T, T_CTX> implements DBEntity<T, T_CTX> {
 
     }
     
+    public count( context: (ctx:T_CTX, query:DBCount<T>)=>any ): Promise<number> {
+        var db = this.context.db;
+        var table = this.context.tableSchemaMap[this.tableName];     
+        var pk = this.context.dbInstance.pk[this.tableName];
+        var query = this._query(db,table, [lf.fn.count(table[pk])]);    
+        
+        
+        return context(<T_CTX>this.tblmap, 
+            new CountService<T>(query,this.context, this.tableName, this.fkmap, this.tblmap));                
+
+    }
+        
     // used by both get and query
-    private _query(db: lf.Database, table: lf.schema.Table) : lf.query.Select
+    private _query(db: lf.Database, table: lf.schema.Table, columns?: lf.schema.Column[]) : lf.query.Select
     {        
         // execute query            
-        var query = db.select().from(table);
+        var query = columns ? db.select(...columns).from(table) : db.select().from(table);
         for (var i=0; i< this.join.length; i++){
             query.innerJoin(this.join[i].table, this.join[i].predicateleft.eq(this.join[i].predicateright))            
         }
@@ -820,14 +855,70 @@ class DBEntityInternal<T, T_CTX> implements DBEntity<T, T_CTX> {
     }    
 }
 
-class QueryService<T> implements DBQuery<T> {
+class QueryServiceBase<T> {
+    protected query: lf.query.Select; 
+    protected context: DBContextInternal;
+    protected tableName: string;
+    protected fkmap: Object;
+    protected tblmap: Object;
+            
+    //where(predicate: Predicate): Select
+    public where(predicate: lf.Predicate): QueryServiceBase<T> {
+        var table = this.tblmap[this.tableName];
+        var dk = this.context.dbInstance.options[this.tableName]['isdeleted']; 
+        if (dk === undefined){
+            this.query.where(predicate);           
+        }
+        else {
+            this.query.where(lf.op.and(predicate,table[dk].eq(false)));
+        }        
+        return this;
+    }  
+    
+    //bind(...values: any[]): Builder
+    
+    //explain(): string
+    public explain():string {
+        return this.query.explain();
+    }
+    //toSql(): string
+    public toSql():string {
+        return this.query.toSql();
+    }        
+}
+class CountService<T> extends QueryServiceBase<T> implements DBCount<T> {
+
+    constructor(
+        protected query: lf.query.Select, 
+        protected context: DBContextInternal,
+        protected tableName: string,
+        protected fkmap: Object,
+        protected tblmap: Object){
+            super();
+        }
+        
+    public where(predicate: lf.Predicate): CountService<T> {
+        super.where(predicate);        
+        return this; 
+    }        
+    public exec() : number {        
+        var pk = this.context.dbInstance.pk[this.tableName];
+        return this.context.exec(this.query).then((results)=>{    
+            var count = results[0][this.tableName][`COUNT(${pk})`];
+            return count;
+        });
+    }        
+}
+class QueryService<T> extends QueryServiceBase<T> implements DBQuery<T> {
     
     constructor(
-        private query: lf.query.Select, 
-        private context: DBContextInternal,
-        private tableName: string,
-        private fkmap: Object,
-        private tblmap: Object){}
+        protected query: lf.query.Select, 
+        protected context: DBContextInternal,
+        protected tableName: string,
+        protected fkmap: Object,
+        protected tblmap: Object){
+            super()
+        }
     
     //groupBy(...columns: schema.Column[]): Select
     
@@ -854,29 +945,12 @@ class QueryService<T> implements DBQuery<T> {
         return this;
     }
     
-    //where(predicate: Predicate): Select
+  
     public where(predicate: lf.Predicate): QueryService<T> {
-        var table = this.tblmap[this.tableName];
-        var dk = this.context.dbInstance.options[this.tableName]['isdeleted']; 
-        if (dk === undefined){
-            this.query.where(predicate);           
-        }
-        else {
-            this.query.where(lf.op.and(predicate,table[dk].eq(false)));
-        }        
-        return this;
-    }    
-    
-    //bind(...values: any[]): Builder
-    
-    //explain(): string
-    public explain():string {
-        return this.query.explain();
+        super.where(predicate);        
+        return this; 
     }
-    //toSql(): string
-    public toSql():string {
-        return this.query.toSql();
-    }
+
     //exec(): Promise<Array<Object>>
     public exec() : Promise<T[]> {
         //return this.query.exec().then((results)=>{
