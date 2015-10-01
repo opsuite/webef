@@ -7,6 +7,7 @@ export interface DBEntity<T, T_CTX> {
     delete(id: number): Promise<T>;
     delete(id?: number[]): Promise<T[]>;
     query(fn: (context: T_CTX, query: DBQuery<T>) => any): Promise<T[]>;
+    count(fn: (context: T_CTX, query: DBCount<T>) => any): Promise<number>;
 }
 export interface DBQuery<T> {
     groupBy(...columns: lf.schema.Column[]): DBQuery<T>;
@@ -18,6 +19,12 @@ export interface DBQuery<T> {
     toSql(): string;
     exec(): Promise<T[]>;
 }
+export interface DBCount<T> {
+    where(predicate: lf.Predicate): DBCount<T>;
+    explain(): string;
+    toSql(): string;
+    exec(): number;
+}
 export declare class DBSchema {
     static create(dbName: string, dbVersion: number, schema: Object): any;
     static create(jsonFilePath: string): any;
@@ -27,7 +34,7 @@ export declare class DBContext<T_CTX> {
     ready: Promise<any>;
     private loading;
     private loaded;
-    constructor(dbName: string, dbStoreType?: lf.schema.DataStoreType);
+    constructor(dbName: string, dbStoreType?: lf.schema.DataStoreType, dbSizeMB?: number);
     purge(): Promise<any>;
     transaction(fn: (tx: lf.Transaction, context: T_CTX) => Promise<any>): Promise<any>;
     tables: T_CTX;

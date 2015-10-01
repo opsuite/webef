@@ -1,3 +1,8 @@
+var __extends = (this && this.__extends) || function (d, b) {
+    for (var p in b) if (b.hasOwnProperty(p)) d[p] = b[p];
+    function __() { this.constructor = d; }
+    d.prototype = b === null ? Object.create(b) : (__.prototype = b.prototype, new __());
+};
 /// <reference path="../typings/tsd.d.ts" />
 require('google/lovefield');
 var DBSchema = (function () {
@@ -156,16 +161,20 @@ var DBInstance = (function () {
     return DBInstance;
 })();
 var DBContext = (function () {
-    function DBContext(dbName, dbStoreType) {
+    function DBContext(dbName, dbStoreType, dbSizeMB) {
         var _this = this;
         this.loading = false;
         this.loaded = false;
         this.context = new DBContextInternal();
-        this.context.dbStoreType = dbStoreType || lf.schema.DataStoreType.WEB_SQL;
+        this.context.dbStoreType = (dbStoreType === undefined) ? lf.schema.DataStoreType.WEB_SQL : dbStoreType;
         this.context.dbInstance = DBSchemaInternal.instanceMap[dbName];
+        var dbSize = (dbSizeMB || 1) * 1024 * 1024; /* db size 1024*1024 = 1MB */
+        var self = this;
         this.ready = new Promise(function (resolve, reject) {
             try {
-                _this.context.dbInstance.schemaBuilder.connect({ storeType: _this.context.dbStoreType })
+                _this.context.dbInstance.schemaBuilder.connect({
+                    storeType: self.context.dbStoreType,
+                    webSqlDbSize: dbSize })
                     .then(function (db) {
                     _this.context.db = db;
                     // get schema for tables
@@ -234,7 +243,11 @@ var DBContextInternal = (function () {
     function DBContextInternal() {
     }
     DBContextInternal.prototype.compose = function (table, rows, fkmap) {
-        var key = fkmap[table].column2;
+        var map = fkmap[table];
+        // if there are no foreign keys there is nothing more to compose
+        if (map === undefined)
+            return rows;
+        var key = map.column2;
         // entities
         var entities = [];
         var distinct = [];
@@ -273,16 +286,19 @@ var DBContextInternal = (function () {
         for (var column in navs) {
             var nav = navs[column];
             var child = row[nav.tableName];
-            if (nav.isArray) {
-                if (undefined === parent[nav.columnName])
-                    parent[nav.columnName] = [child];
-                else
-                    parent[nav.columnName].push(child);
+            // bug? in some cases child is undefined
+            if (child) {
+                if (nav.isArray) {
+                    if (undefined === parent[nav.columnName])
+                        parent[nav.columnName] = [child];
+                    else
+                        parent[nav.columnName].push(child);
+                }
+                else {
+                    parent[nav.columnName] = child;
+                }
+                this.compose_(nav.tableName, row, child);
             }
-            else {
-                parent[nav.columnName] = child;
-            }
-            this.compose_(nav.tableName, row, child);
         }
     };
     DBContextInternal.prototype.decompose = function (table, entities) {
@@ -421,6 +437,11 @@ var DBEntityInternal = (function () {
             return 0;
         });
         //console.log(this.tables);
+        /*
+        console.group(this.tableName);
+        console.log(this.fkmap);
+        console.groupEnd();
+        */
         ready.then(function () {
             // map tables for joins
             var tableSchema = context.tableSchemaMap[_this.tableName];
@@ -640,14 +661,21 @@ var DBEntityInternal = (function () {
     };
     DBEntityInternal.prototype.query = function (context) {
         var db = this.context.db;
-        var table = this.context.tableSchemaMap[this.tableName]; //db.getSchema().table(this.tableName);         
+        var table = this.context.tableSchemaMap[this.tableName];
         var query = this._query(db, table);
         return context(this.tblmap, new QueryService(query, this.context, this.tableName, this.fkmap, this.tblmap));
     };
+    DBEntityInternal.prototype.count = function (context) {
+        var db = this.context.db;
+        var table = this.context.tableSchemaMap[this.tableName];
+        var pk = this.context.dbInstance.pk[this.tableName];
+        var query = this._query(db, table, [lf.fn.count(table[pk])]);
+        return context(this.tblmap, new CountService(query, this.context, this.tableName, this.fkmap, this.tblmap));
+    };
     // used by both get and query
-    DBEntityInternal.prototype._query = function (db, table) {
+    DBEntityInternal.prototype._query = function (db, table, columns) {
         // execute query            
-        var query = db.select().from(table);
+        var query = columns ? db.select.apply(db, columns).from(table) : db.select().from(table);
         for (var i = 0; i < this.join.length; i++) {
             query.innerJoin(this.join[i].table, this.join[i].predicateleft.eq(this.join[i].predicateright));
         }
@@ -703,8 +731,60 @@ var DBEntityInternal = (function () {
     };
     return DBEntityInternal;
 })();
-var QueryService = (function () {
+var QueryServiceBase = (function () {
+    function QueryServiceBase() {
+    }
+    //where(predicate: Predicate): Select
+    QueryServiceBase.prototype.where = function (predicate) {
+        var table = this.tblmap[this.tableName];
+        var dk = this.context.dbInstance.options[this.tableName]['isdeleted'];
+        if (dk === undefined) {
+            this.query.where(predicate);
+        }
+        else {
+            this.query.where(lf.op.and(predicate, table[dk].eq(false)));
+        }
+        return this;
+    };
+    //bind(...values: any[]): Builder
+    //explain(): string
+    QueryServiceBase.prototype.explain = function () {
+        return this.query.explain();
+    };
+    //toSql(): string
+    QueryServiceBase.prototype.toSql = function () {
+        return this.query.toSql();
+    };
+    return QueryServiceBase;
+})();
+var CountService = (function (_super) {
+    __extends(CountService, _super);
+    function CountService(query, context, tableName, fkmap, tblmap) {
+        _super.call(this);
+        this.query = query;
+        this.context = context;
+        this.tableName = tableName;
+        this.fkmap = fkmap;
+        this.tblmap = tblmap;
+    }
+    CountService.prototype.where = function (predicate) {
+        _super.prototype.where.call(this, predicate);
+        return this;
+    };
+    CountService.prototype.exec = function () {
+        var _this = this;
+        var pk = this.context.dbInstance.pk[this.tableName];
+        return this.context.exec(this.query).then(function (results) {
+            var count = results[0][_this.tableName][("COUNT(" + pk + ")")];
+            return count;
+        });
+    };
+    return CountService;
+})(QueryServiceBase);
+var QueryService = (function (_super) {
+    __extends(QueryService, _super);
     function QueryService(query, context, tableName, fkmap, tblmap) {
+        _super.call(this);
         this.query = query;
         this.context = context;
         this.tableName = tableName;
@@ -735,26 +815,9 @@ var QueryService = (function () {
         this.query.skip(numberOfRows);
         return this;
     };
-    //where(predicate: Predicate): Select
     QueryService.prototype.where = function (predicate) {
-        var table = this.tblmap[this.tableName];
-        var dk = this.context.dbInstance.options[this.tableName]['isdeleted'];
-        if (dk === undefined) {
-            this.query.where(predicate);
-        }
-        else {
-            this.query.where(lf.op.and(predicate, table[dk].eq(false)));
-        }
+        _super.prototype.where.call(this, predicate);
         return this;
-    };
-    //bind(...values: any[]): Builder
-    //explain(): string
-    QueryService.prototype.explain = function () {
-        return this.query.explain();
-    };
-    //toSql(): string
-    QueryService.prototype.toSql = function () {
-        return this.query.toSql();
     };
     //exec(): Promise<Array<Object>>
     QueryService.prototype.exec = function () {
@@ -766,7 +829,7 @@ var QueryService = (function () {
         });
     };
     return QueryService;
-})();
+})(QueryServiceBase);
 // general purpos helpers
 var is = (function () {
     function is() {
