@@ -1,13 +1,14 @@
-/// <reference path="../typings/tsd.d.ts" />
-export interface DBEntity<T, T_CTX> {
+/// <reference path="../webef/typings/tsd.d.ts" />
+export interface DBEntity<T, E_CTX, T_CTX> {
     put(entity: T): Promise<number>;
     put(entities: T[]): Promise<number[]>;
     get(id: number): Promise<T>;
     get(id?: number[]): Promise<T[]>;
     delete(id: number): Promise<T>;
     delete(id?: number[]): Promise<T[]>;
-    query(fn: (context: T_CTX, query: DBQuery<T>) => any): Promise<T[]>;
-    count(fn: (context: T_CTX, query: DBCount<T>) => any): Promise<number>;
+    query(fn: (context: E_CTX, query: DBQuery<T>) => any): Promise<T[]>;
+    count(fn: (context: E_CTX, query: DBCount<T>) => any): Promise<number>;
+    select(fn: (context: T_CTX, query: DBQuery<T>) => any): Promise<T[]>;
 }
 export interface DBQuery<T> {
     groupBy(...columns: lf.schema.Column[]): DBQuery<T>;
@@ -26,20 +27,21 @@ export interface DBCount<T> {
     exec(): number;
 }
 export declare class DBSchema {
-    static create(dbName: string, dbVersion: number, schema: Object): any;
-    static create(jsonFilePath: string): any;
+    static create(dbName: string, dbVersion: number, schema: Object): void;
+    static create(jsonFilePath: string): void;
 }
-export declare class DBContext<T_CTX> {
+export declare class DBContext<E_CTX> {
     private context;
     ready: Promise<any>;
     private loading;
     private loaded;
     constructor(dbName: string, dbStoreType?: lf.schema.DataStoreType, dbSizeMB?: number);
     purge(): Promise<any>;
-    transaction(fn: (tx: lf.Transaction, context: T_CTX) => Promise<any>): Promise<any>;
-    tables: T_CTX;
+    transaction(fn: (tx: lf.Transaction, context: E_CTX) => Promise<any>): Promise<any>;
+    tables: E_CTX;
     select(...columns: lf.schema.Column[]): lf.query.Select;
-    DBEntity<T, T_CTX>(tableName: string, navigationProperties?: string[]): DBEntity<T, T_CTX>;
+    getCheckpoint(): number;
+    DBEntity<T, E_CTX, T_CTX>(tableName: string, navigationProperties?: string[]): DBEntity<T, E_CTX, T_CTX>;
 }
 export declare class is {
     static array(x: any): boolean;

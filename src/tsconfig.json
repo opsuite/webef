@@ -1,9 +1,20 @@
 {
 	"compilerOptions": {
-		"module": "commonjs",
-		"target": "es5",
 		"declarationFiles": true,
 		"emitDecoratorMetadata": true,
-		"experimentalDecorators": true
-	}
+		"experimentalDecorators": true,
+		"declaration": true,
+		"noImplicitAny": false,
+		"noEmitOnError": true,
+		"sourceMap": true,
+		"module": "commonjs",
+		"moduleResolution": "node",
+		"target": "ES5",
+		"outDir": "../lib"		
+	},
+	"files":[
+		"../typings/es6-promise/es6-promise.d.ts",
+		"../typings/lovefield/lovefield.d.ts",
+		"ef.ts"
+	]
 }
