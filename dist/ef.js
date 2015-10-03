@@ -1016,4 +1016,8 @@ var WebEF;
         Load.cache = {};
         return Load;
     })();
-})(WebEF || (WebEF = {}));
+})(WebEF = exports.WebEF || (exports.WebEF = {}));
+/*
+try{if(module){module.exports=WebEF;}}catch(e){}
+window.WebEF = WebEF;
+*/ 

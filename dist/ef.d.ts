@@ -44,6 +44,3 @@ declare module WebEF {
         DBEntity<T, E_CTX, T_CTX>(tableName: string, navigationProperties?: string[]): DBEntity<T, E_CTX, T_CTX>;
     }
 }
-declare module 'WebEF' {
-    export = 'WebEF';
-}
