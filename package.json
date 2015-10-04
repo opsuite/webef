@@ -28,21 +28,16 @@
   "license": "MIT",
   "jspm": {
     "dependencies": {
-      "google/lovefield": "github:google/lovefield@master"
+      "lovefield": "npm:lovefield@^2.0.63"
     },
     "devDependencies": {
       "babel": "npm:babel-core@^5.8.22",
       "babel-runtime": "npm:babel-runtime@^5.8.20",
       "core-js": "npm:core-js@^1.1.0"
-    },
-    "overrides": {
-      "github:google/lovefield@master": {
-        "registry": "npm"
-      }
     }
   },
   "repository": {
     "type": "git",
     "url": "git://github.com/opsuite/webef.git"
-  }  
+  }
 }

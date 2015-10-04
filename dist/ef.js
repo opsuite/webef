@@ -9,7 +9,7 @@ var __extends = (this && this.__extends) || function (d, b) {
     d.prototype = b === null ? Object.create(b) : (__.prototype = b.prototype, new __());
 };
 /// <reference path="../typings/tsd.d.ts" />
-require('google/lovefield');
+require('lovefield');
 var WebEF;
 (function (WebEF) {
     var DBSchema = (function () {
@@ -1017,7 +1017,3 @@ var WebEF;
         return Load;
     })();
 })(WebEF = exports.WebEF || (exports.WebEF = {}));
-/*
-try{if(module){module.exports=WebEF;}}catch(e){}
-window.WebEF = WebEF;
-*/ 

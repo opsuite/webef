@@ -1,7 +1,6 @@
 /// <reference path="../typings/tsd.d.ts" />
-
-declare module WebEF {
-    export interface DBEntity<T, E_CTX, T_CTX> {
+export declare module WebEF {
+    interface DBEntity<T, E_CTX, T_CTX> {
         put(entity: T): Promise<number>;
         put(entities: T[]): Promise<number[]>;
         get(id: number): Promise<T>;
@@ -12,7 +11,7 @@ declare module WebEF {
         count(fn: (context: E_CTX, query: DBCount<T>) => any): Promise<number>;
         select(fn: (context: T_CTX, query: DBQuery<T>) => any): Promise<T[]>;
     }
-    export interface DBQuery<T> {
+    interface DBQuery<T> {
         groupBy(...columns: lf.schema.Column[]): DBQuery<T>;
         limit(numberOfRows: lf.Binder | number): DBQuery<T>;
         orderBy(column: lf.schema.Column, order?: lf.Order): DBQuery<T>;
@@ -28,13 +27,15 @@ declare module WebEF {
         toSql(): string;
         exec(): number;
     }
-    
-    export class DBSchema {
+    class DBSchema {
         static create(dbName: string, dbVersion: number, schema: Object): void;
         static create(jsonFilePath: string): void;
     }
-    export class DBContext<E_CTX> {
+    class DBContext<E_CTX> {
+        private context;
         ready: Promise<any>;
+        private loading;
+        private loaded;
         constructor(dbName: string, dbStoreType?: lf.schema.DataStoreType, dbSizeMB?: number);
         purge(): Promise<any>;
         transaction(fn: (tx: lf.Transaction, context: E_CTX) => Promise<any>): Promise<any>;
