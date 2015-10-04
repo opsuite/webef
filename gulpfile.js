@@ -46,14 +46,13 @@ function build_task() {
 		//.pipe(sourcemaps.init({loadMaps: true}))
 		.pipe(ts(tsProject)); 
 		   
-    return merge([ // Merge the two output streams, so this task is finished when the IO of both operations are done. 
-        tsResult.dts.pipe(gulp.dest( config.build.path)),
-        tsResult.js
-        //.pipe(sourcemaps.write()) // Now the sourcemaps are added to the .js file
+    return //merge([ 
+        //tsResult.dts.pipe(gulp.dest( config.build.path)),
+        tsResult.js        
 		.pipe(gulp.dest( config.build.path)) 
 		.pipe(uglify())
 		.pipe(rename({extname: '.min.js'}))
 		.pipe(gulp.dest( config.build.path))
-	]);
+//]);
 }
 
