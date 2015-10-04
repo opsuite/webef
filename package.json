@@ -1,6 +1,6 @@
 {
   "name": "webef",
-  "version": "1.0.0",
+  "version": "0.1.0",
   "description": "Entity Framework for the web. Built on Google Lovefield",
   "main": "dist/ef.min.js",
   "typings": "dist/ef.d.ts",
@@ -40,5 +40,9 @@
         "registry": "npm"
       }
     }
-  }
+  },
+  "repository": {
+    "type": "git",
+    "url": "git://github.com/opsuite/webef.git"
+  }  
 }
