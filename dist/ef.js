@@ -1017,3 +1017,4 @@ var WebEF;
         return Load;
     })();
 })(WebEF = exports.WebEF || (exports.WebEF = {}));
+window.WebEF=WebEF;
