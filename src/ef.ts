@@ -5,7 +5,7 @@
 |----------------------------------------------------------------------------*/
 
 /// <reference path="../typings/tsd.d.ts" />
-import 'google/lovefield';
+import 'lovefield';
 
 export module WebEF {    
     // exports
