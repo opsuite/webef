@@ -28,7 +28,7 @@
   "license": "MIT",
   "jspm": {
     "dependencies": {
-      "lovefield": "npm:lovefield@^2.0.63"
+      "lovefield": "github:google/lovefield@^2.0.63"
     },
     "devDependencies": {
       "babel": "npm:babel-core@^5.8.22",
