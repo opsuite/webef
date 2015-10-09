@@ -47,7 +47,7 @@ function build_task() {
 		.pipe(ts(tsProject)); 
 		   
     return merge([ // Merge the two output streams, so this task is finished when the IO of both operations are done. 
-        tsResult.dts.pipe(gulp.dest( config.build.path)),
+        //tsResult.dts.pipe(gulp.dest( config.build.path)),
         tsResult.js
         //.pipe(sourcemaps.write()) // Now the sourcemaps are added to the .js file
 		.pipe(gulp.dest( config.build.path)) 

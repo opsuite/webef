@@ -319,7 +319,10 @@ export module WebEF {
             // if there are no foreign keys there is nothing more to compose
             if (map === undefined) return rows;
             var key = map.column2;        
-    
+                        
+            // patch 10/9/2015 undefined keyvalue where table: nav->table2: table2.fkey                         
+            if (undefined === row[table][key]) key = map.column1;
+            
             // entities
             const entities: Object[] = [];
             const distinct: Object[][]= [];

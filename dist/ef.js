@@ -267,6 +267,9 @@ var WebEF;
             if (map === undefined)
                 return rows;
             var key = map.column2;
+            // patch 10/9/2015 undefined keyvalue where table: nav->table2: table2.fkey                         
+            if (undefined === row[table][key])
+                key = map.column1;
             // entities
             var entities = [];
             var distinct = [];
