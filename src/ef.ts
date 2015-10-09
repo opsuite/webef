@@ -320,8 +320,9 @@ export module WebEF {
             if (map === undefined) return rows;
             var key = map.column2;        
                         
-            // patch 10/9/2015 undefined keyvalue where table: nav->table2: table2.fkey                         
-            if (undefined === row[table][key]) key = map.column1;
+            // this is a hack to fix undefined keyvalue where table: nav->table2: table2.fkey                         
+            // need to figure out why column2 does not always hold the correct key
+            if (rows[0] && undefined === rows[0][table][key]) key = map.column1;
             
             // entities
             const entities: Object[] = [];
