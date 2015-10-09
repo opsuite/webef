@@ -18,9 +18,9 @@
     "gulp-rename": "^1.2.2",
     "gulp-sourcemaps": "^1.6.0",
     "gulp-tsd": "0.0.4",
-    "gulp-typescript": "^2.8.2",
+    "gulp-typescript": "^2.9.2",
     "gulp-uglify": "^1.4.1",
-    "jspm": "^0.16.2",
+    "jspm": "^0.16.12",
     "jspm-bower": "0.0.3",
     "merge2": "^0.3.6"
   },
@@ -28,14 +28,12 @@
   "license": "MIT",
   "jspm": {
     "dependencies": {
-      "lovefield": "github:google/lovefield@master"
+      "lovefield": "npm:lovefield@^2"
     },
     "devDependencies": {
       "babel": "npm:babel-core@^5.8.22",
       "babel-runtime": "npm:babel-runtime@^5.8.20",
-      "core-js": "npm:core-js@^1.1.0",
-      "traceur": "github:jmcriffey/bower-traceur@0.0.91",
-      "traceur-runtime": "github:jmcriffey/bower-traceur-runtime@0.0.91"
+      "core-js": "npm:core-js@^1.1.4"
     }
   },
   "repository": {
