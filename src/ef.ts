@@ -183,8 +183,14 @@ export module WebEF {
                 tb.addIndex(`ix_${table}`, indeces); 
             }      
             
+            // holds database state info such as dbtimestamp index
+            schemaBuilder.createTable('__dbstate')
+                .addColumn('id', lf.Type.STRING)
+                .addColumn('value', lf.Type.INTEGER)
+                .addPrimaryKey(['id']);
+                
             DBSchemaInternal.instanceMap[dbName] = 
-                new DBInstance(dbName, dbVersion, schemaBuilder, columns, nav, tables, fk, options, pk);
+                new DBInstance(dbName, dbVersion, schemaBuilder, columns, nav, tables, fk, options, pk);                        
             
         }
         
@@ -223,7 +229,7 @@ export module WebEF {
         
         constructor(dbName: string, dbStoreType?: lf.schema.DataStoreType, dbSizeMB?: number) {       
             this.context = new DBContextInternal();
-            this.context.dbStoreType = (dbStoreType===undefined) ? lf.schema.DataStoreType.WEB_SQL : dbStoreType; 
+            this.context.dbStoreType = (dbStoreType===undefined) ? lf.schema.DataStoreType.INDEXED_DB : dbStoreType; 
             this.context.dbInstance = DBSchemaInternal.instanceMap[dbName];         
             var dbSize = (dbSizeMB || 1) * 1024 * 1024; /* db size 1024*1024 = 1MB */
             
@@ -235,15 +241,16 @@ export module WebEF {
                     webSqlDbSize: dbSize })
                 .then(db => { 
                     this.context.db = db;
-                    
                     // get schema for tables
                     this.context.tableSchemaMap = this.context.dbInstance.newTableMap();
                     this.context.tables = [];
                     for (var table in this.context.tableSchemaMap  ){
-                        let t= this.context.db.getSchema().table(table);
+                        let t= db.getSchema().table(table);
                         this.context.tableSchemaMap[table] = t;       
                         this.context.tables.push(t);
                     }
+                    this.context.dbStateTable = db.getSchema().table('__dbstate');
+                    
                     resolve();                                    
                 });           
                 }
@@ -288,7 +295,27 @@ export module WebEF {
             return this.context.db.select.apply(this.context.db,columns);
         }
         
-        public getCheckpoint() : number {
+        public getCheckpoint() : Promise<number> {
+            
+            return new Promise<number>((resolve,reject)=>{
+            var key = `${this.context.dbInstance.dbName}${this.context.dbStoreType}.dbtimestamp.masterIndex`;
+            this.context.db.select()
+                .from(this.context.dbStateTable)
+                .where(this.context.dbStateTable['id'].eq(key))
+                .limit(1)
+                .exec()
+                .then(r=>{
+                    if (r && r[0]){
+                        var value = r[0]['value'];
+                        resolve(value);
+                    }
+                    else {
+                        resolve(0);
+                    }
+                })
+                
+            })
+            /*
             if (!localStorage) throw new Error('localstorage not supported!');
             var key = `${this.context.dbInstance.dbName}${this.context.dbStoreType}.dbtimestamp.masterIndex`;
             var s=localStorage.getItem(key);
@@ -296,6 +323,7 @@ export module WebEF {
             var n = parseInt(s);
             if (isNaN(n)) return 0;
             return n;
+            */
         }
         
         
@@ -312,6 +340,7 @@ export module WebEF {
         public tableSchemaMap: Object;
         public tables: lf.schema.Table[];
         public tx: lf.Transaction;
+        public dbStateTable: lf.schema.Table;
         
         public compose(table: string, rows: Object[], fkmap: Object) : Object[] {
                     
@@ -414,7 +443,47 @@ export module WebEF {
                 }
             }
         }    
+        
+        private dbState(key): Promise<number> {
+            return new Promise<number>((resolve,reject)=>{                
+                this.db.select()
+                .from(this.dbStateTable)
+                .where(this.dbStateTable['id'].eq(key))
+                .limit(1)
+                .exec()
+                .then(r=>{
+                    if (r && r[0]){
+                        var value = r[0]['value'];
+                        resolve(value);
+                    }
+                    else {
+                        resolve(0);
+                    }
+                })
+            })            
+        }
+        private setDbState(key,value): Promise<any> {
+            var row= this.dbStateTable.createRow({
+                    'id': key,
+                    'value': value              
+            });
+            return this.db.insertOrReplace().into(this.dbStateTable).values([row]).exec();
+        }
     
+        public allocateKeys(table:string, take?:number): Promise<number> {
+            
+            var key = `${this.dbInstance.dbName}${this.dbStoreType}.${table}.masterIndex`;
+            return this.dbState(key).then(lsvalue=>{
+                var value = lsvalue || 1;
+                var nextvalue =value;
+                if (!take) take=1;
+                nextvalue += take;
+                return this.setDbState(key,nextvalue).then(()=>{
+                    return value;  
+                })                
+            })
+        }
+        /*
         public allocateKeys(table:string, take?:number):number {
             var key = `${this.dbInstance.dbName}${this.dbStoreType}.${table}.masterIndex`;
             var lsvalue = window.localStorage.getItem( key );
@@ -424,18 +493,29 @@ export module WebEF {
             if (!take) take=1;
             nextvalue += take; 
             window.localStorage.setItem(key, nextvalue.toString());
-            //console.log(`${table}:${value}`);
             return value;        
         }
+        */
+        public rollbackKeys(table:string, idIndex:number): Promise<any>{
+            var key = `${this.dbInstance.dbName}${this.dbStoreType}.${table}.masterIndex`;
+            return this.setDbState(key,(idIndex-1))
+        }
+        /*
         public rollbackKeys(table:string, idIndex:number){
             var key = `${this.dbInstance.dbName}${this.dbStoreType}.${table}.masterIndex`;
             window.localStorage.setItem(key, (idIndex-1).toString());
+        }        
+        */
+        public purgeKeys(table:string) : Promise<any> {
+            var key = `${this.dbInstance.dbName}${this.dbStoreType}.${table}.masterIndex`;
+            return this.db.delete().from(this.dbStateTable).where(this.dbStateTable['id'].eq(key)).exec();
         }
+        /*
         public purgeKeys(table:string) {
             var key = `${this.dbInstance.dbName}${this.dbStoreType}.${table}.masterIndex`;
             localStorage.removeItem(key);
         }
-        
+        */
         public exec(q:any){
             if (this.tx){
                 return this.tx.attach(q);
@@ -577,50 +657,55 @@ export module WebEF {
             var tables= this.context.decompose(this.tableName, entities);
             
             // calculate pkeys
-            var keys = {};
-            for (let tableName in tables){
-                let dirtyRecords = tables[tableName];
+            var keys = {}, q=[];
+            for (var tableName in tables){
+                var dirtyRecords = tables[tableName];
                 if (dirtyRecords.length > 0){                    
-                    keys[tableName] = this.put_calculateKeys(dirtyRecords,tableName);                    
+                    //keys[tableName] = this.put_calculateKeys(dirtyRecords,tableName);      
+                    q.push(this.put_calculateKeys(dirtyRecords,tableName).then(x=>{
+                        keys[tableName]=x;
+                    }));              
                 }                   
             }                                    
             
-            // calculate fkeys
-            for (var i=0; i<entities.length; i++){
-                this.put_calculateForeignKeys(this.tableName, entities[i]);
-            }
-                        
-            // put rows - get queries
-            var q = [];
-            for (var i=0; i< this.tables.length; i++){ // use this.tables since its presorted for inserts
-                let tableName = this.tables[i];            
-                let dirtyRecords = tables[tableName];
-                if (dirtyRecords.length > 0){                    
-                    q.push(this.put_execute(dirtyRecords, tableName, this.context.db, keys));                                        
-                }                   
-            } 
-            
-            // execute / attach
-            
-            return this.context.execMany(q).then(
-            
-            r=>{
-                // return just the ids for the root entitiy
-                var ids = entities.map((value: DBModel, index: number, array: DBModel[])=>{
-                    return value[this.pk];
-                });
-                if (ids.length === 1) return ids[0];
-                else return ids;                
-            },
-            e=>{
-                for (let tableName in tables){
-                    var rollback = keys[tableName];
-                    if (rollback) {
-                        if (rollback.dbtsIndex) this.context.rollbackKeys('dbtimestamp', rollback.dbtsIndex)                    
-                        this.context.rollbackKeys(tableName, rollback.index);
-                    }
+            return Promise.all(q).then(()=>{
+                // calculate fkeys
+                for (var i=0; i<entities.length; i++){
+                    this.put_calculateForeignKeys(this.tableName, entities[i]);
                 }
-                throw e;
+                            
+                // put rows - get queries
+                var q = [];
+                for (var i=0; i< this.tables.length; i++){ // use this.tables since its presorted for inserts
+                    let tableName = this.tables[i];            
+                    let dirtyRecords = tables[tableName];
+                    if (dirtyRecords.length > 0){                    
+                        q.push(this.put_execute(dirtyRecords, tableName, this.context.db, keys));                                        
+                    }                   
+                } 
+                
+                // execute / attach
+                
+                return this.context.execMany(q).then(
+                
+                r=>{
+                    // return just the ids for the root entitiy
+                    var ids = entities.map((value: DBModel, index: number, array: DBModel[])=>{
+                        return value[this.pk];
+                    });
+                    if (ids.length === 1) return ids[0];
+                    else return ids;                
+                },
+                e=>{
+                    for (let tableName in tables){
+                        var rollback = keys[tableName];
+                        if (rollback) {
+                            if (rollback.dbtsIndex) this.context.rollbackKeys('dbtimestamp', rollback.dbtsIndex)                    
+                            this.context.rollbackKeys(tableName, rollback.index);
+                        }
+                    }
+                    throw e;
+                });
             });
         
             /*
@@ -688,37 +773,40 @@ export module WebEF {
             }
             
             // allocate keys
-            var idIndex = this.context.allocateKeys(tableName, missingKey.length);
-            
-            // insert keys
-            for (var i=0; i< missingKey.length; i++){                            
-                dirtyRecords[missingKey[i]][pk] = idIndex + i;
-            }
-            
-            // add dbTimestamp (optional)
-            var dbTimeStampColumn = this.context.dbInstance.options[tableName].dbtimestamp;
-            var dbTimeStampIndex;
-            if (dbTimeStampColumn){
-                dbTimeStampIndex = this.context.allocateKeys('dbtimestamp', dirtyRecords.length)
+            //var idIndex = this.context.allocateKeys(tableName, missingKey.length);
+            return this.context.allocateKeys(tableName, missingKey.length).then(idIndex=>{
                 
-                for (var i=0; i< dirtyRecords.length; i++) {                            
-                    dirtyRecords[i][dbTimeStampColumn] = dbTimeStampIndex+i;
-                }
-            }
             
-            // add optional isDeleted column
-            var isDeletedColumn = this.context.dbInstance.options[tableName].isdeleted;
-            if (isDeletedColumn){
-                for (var i=0; i< dirtyRecords.length; i++) {                            
-                    dirtyRecords[i][isDeletedColumn] = false;
+                // insert keys
+                for (var i=0; i< missingKey.length; i++){                            
+                    dirtyRecords[missingKey[i]][pk] = idIndex + i;
                 }
-            }
-                        
-            
-            return {
-                index: idIndex,
-                dbtsIndex: dbTimeStampIndex
-            }                     
+                
+                // add dbTimestamp (optional)
+                var dbTimeStampColumn = this.context.dbInstance.options[tableName].dbtimestamp;
+                var dbTimeStampIndex;
+                if (dbTimeStampColumn){
+                    dbTimeStampIndex = this.context.allocateKeys('dbtimestamp', dirtyRecords.length)
+                    
+                    for (var i=0; i< dirtyRecords.length; i++) {                            
+                        dirtyRecords[i][dbTimeStampColumn] = dbTimeStampIndex+i;
+                    }
+                }
+                
+                // add optional isDeleted column
+                var isDeletedColumn = this.context.dbInstance.options[tableName].isdeleted;
+                if (isDeletedColumn){
+                    for (var i=0; i< dirtyRecords.length; i++) {                            
+                        dirtyRecords[i][isDeletedColumn] = false;
+                    }
+                }
+                            
+                
+                return {
+                    index: idIndex,
+                    dbtsIndex: dbTimeStampIndex
+                } 
+            });                    
         }
         
         private put_execute(dirtyRecords: DBModel[], tableName:string, db: lf.Database, keys: Object){

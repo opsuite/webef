@@ -50,7 +50,7 @@ function build_task() {
     return merge([ // Merge the two output streams, so this task is finished when the IO of both operations are done. 
         //tsResult.dts.pipe(gulp.dest( config.build.path)),
         tsResult.js
-		.pipe(insert.append('window.WebEF=WebEF;'))
+		.pipe(insert.append('var window=window||self;window.WebEF=WebEF;'))
         //.pipe(sourcemaps.write()) // Now the sourcemaps are added to the .js file
 		.pipe(gulp.dest( config.build.path)) 
 		.pipe(uglify())

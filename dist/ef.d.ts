@@ -40,7 +40,7 @@ declare module WebEF {
         transaction(fn: (tx: lf.Transaction, context: E_CTX) => Promise<any>): Promise<any>;
         tables: E_CTX;
         select(...columns: lf.schema.Column[]): lf.query.Select;
-        getCheckpoint(): number;
+        getCheckpoint(): Promise<number>;
         DBEntity<T, E_CTX, T_CTX>(tableName: string, navigationProperties?: string[]): DBEntity<T, E_CTX, T_CTX>;
     }
 }
