@@ -28,6 +28,7 @@ var uglify = require('gulp-uglify');
 var rename = require('gulp-rename');
 var sourcemaps = require('gulp-sourcemaps');
 var concat = require('gulp-concat');
+var insert = require('gulp-insert');
 
 gulp.task('tsd', tsd_task);
 gulp.task('build', build_task);
@@ -46,13 +47,16 @@ function build_task() {
 		//.pipe(sourcemaps.init({loadMaps: true}))
 		.pipe(ts(tsProject)); 
 		   
-    return //merge([ 
+    return merge([ // Merge the two output streams, so this task is finished when the IO of both operations are done. 
         //tsResult.dts.pipe(gulp.dest( config.build.path)),
-        tsResult.js        
+        tsResult.js
+		.pipe(insert.append('var window=window||self;window.WebEF=WebEF;'))
+        //.pipe(sourcemaps.write()) // Now the sourcemaps are added to the .js file
+
 		.pipe(gulp.dest( config.build.path)) 
 		.pipe(uglify())
 		.pipe(rename({extname: '.min.js'}))
 		.pipe(gulp.dest( config.build.path))
-//]);
+	]);
 }
 
