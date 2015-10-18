@@ -198,7 +198,11 @@ var WebEF;
                             _this.context.tables.push(t);
                         }
                         _this.context.dbStateTable = db.getSchema().table('__dbstate');
-                        resolve();
+                        // get dbstate
+                        db.select().from(_this.context.dbStateTable).exec().then(function (r) {
+                            _this.context.initState(r);
+                            resolve();
+                        });
                     });
                 }
                 catch (e) {
@@ -283,6 +287,8 @@ var WebEF;
     // private classes
     var DBContextInternal = (function () {
         function DBContextInternal() {
+            // synchronous versions of dbState/setDbState
+            this.dbStateObject = {};
         }
         DBContextInternal.prototype.compose = function (table, rows, fkmap) {
             var map = fkmap[table];
@@ -374,6 +380,20 @@ var WebEF;
                 }
             }
         };
+        DBContextInternal.prototype.initState = function (state) {
+            for (var i = 0; i < state.length; i++) {
+                var key = state[i]['key'];
+                var value = state[i]['value'];
+                this.dbStateObject[key] = value;
+            }
+        };
+        DBContextInternal.prototype.getState = function (key) {
+            return this.dbStateObject[key];
+        };
+        DBContextInternal.prototype.setState = function (key, value) {
+            this.dbStateObject[key] = value;
+            this.setDbState(key, value);
+        };
         DBContextInternal.prototype.dbState = function (key) {
             var _this = this;
             return new Promise(function (resolve, reject) {
@@ -400,53 +420,28 @@ var WebEF;
             });
             return this.db.insertOrReplace().into(this.dbStateTable).values([row]).exec();
         };
+        DBContextInternal.prototype.dbStateKey = function (table) {
+            return "" + this.dbInstance.dbName + this.dbStoreType + "." + table + ".masterIndex";
+        };
         DBContextInternal.prototype.allocateKeys = function (table, take) {
-            var _this = this;
-            var key = "" + this.dbInstance.dbName + this.dbStoreType + "." + table + ".masterIndex";
-            return this.dbState(key).then(function (lsvalue) {
-                var value = lsvalue || 1;
-                var nextvalue = value;
-                if (!take)
-                    take = 1;
-                nextvalue += take;
-                return _this.setDbState(key, nextvalue).then(function () {
-                    return value;
-                });
-            });
-        };
-        /*
-        public allocateKeys(table:string, take?:number):number {
-            var key = `${this.dbInstance.dbName}${this.dbStoreType}.${table}.masterIndex`;
-            var lsvalue = window.localStorage.getItem( key );
-            var value:number, nextvalue:number;
-            if (lsvalue === null) value=1; else value = parseInt(lsvalue);
-            nextvalue = value;
-            if (!take) take=1;
+            var key = this.dbStateKey(table);
+            var lsvalue = this.getState(key);
+            var value = lsvalue || 1;
+            var nextvalue = value;
+            if (!take)
+                take = 1;
             nextvalue += take;
-            window.localStorage.setItem(key, nextvalue.toString());
+            this.setState(key, nextvalue);
             return value;
-        }
-        */
-        DBContextInternal.prototype.rollbackKeys = function (table, idIndex) {
-            var key = "" + this.dbInstance.dbName + this.dbStoreType + "." + table + ".masterIndex";
-            return this.setDbState(key, (idIndex - 1));
         };
-        /*
-        public rollbackKeys(table:string, idIndex:number){
-            var key = `${this.dbInstance.dbName}${this.dbStoreType}.${table}.masterIndex`;
-            window.localStorage.setItem(key, (idIndex-1).toString());
-        }
-        */
+        DBContextInternal.prototype.rollbackKeys = function (table, idIndex) {
+            var key = this.dbStateKey(table);
+            this.setState(key, (idIndex - 1));
+        };
         DBContextInternal.prototype.purgeKeys = function (table) {
             var key = "" + this.dbInstance.dbName + this.dbStoreType + "." + table + ".masterIndex";
             return this.db.delete().from(this.dbStateTable).where(this.dbStateTable['id'].eq(key)).exec();
         };
-        /*
-        public purgeKeys(table:string) {
-            var key = `${this.dbInstance.dbName}${this.dbStoreType}.${table}.masterIndex`;
-            localStorage.removeItem(key);
-        }
-        */
         DBContextInternal.prototype.exec = function (q) {
             if (this.tx) {
                 return this.tx.attach(q);
@@ -570,62 +565,40 @@ var WebEF;
             // decompose entities                
             var tables = this.context.decompose(this.tableName, entities);
             // calculate pkeys
-            var keys = {}, q = [];
+            var keys = {};
             for (var tableName in tables) {
                 var dirtyRecords = tables[tableName];
                 if (dirtyRecords.length > 0) {
-                    //keys[tableName] = this.put_calculateKeys(dirtyRecords,tableName);      
-                    q.push(this.put_calculateKeys(dirtyRecords, tableName).then(function (x) {
-                        keys[tableName] = x;
-                    }));
+                    keys[tableName] = this.put_calculateKeys(dirtyRecords, tableName);
                 }
             }
-            return Promise.all(q).then(function () {
-                // calculate fkeys
-                for (var i = 0; i < entities.length; i++) {
-                    _this.put_calculateForeignKeys(_this.tableName, entities[i]);
+            // calculate fkeys
+            for (var i = 0; i < entities.length; i++) {
+                this.put_calculateForeignKeys(this.tableName, entities[i]);
+            }
+            // put rows - get queries
+            var q = [];
+            for (var i = 0; i < this.tables.length; i++) {
+                var tableName_1 = this.tables[i];
+                var dirtyRecords_1 = tables[tableName_1];
+                if (dirtyRecords_1.length > 0) {
+                    q.push(this.put_execute(dirtyRecords_1, tableName_1, this.context.db, keys));
                 }
-                // put rows - get queries
-                var q = [];
-                for (var i = 0; i < _this.tables.length; i++) {
-                    var tableName_1 = _this.tables[i];
-                    var dirtyRecords_1 = tables[tableName_1];
-                    if (dirtyRecords_1.length > 0) {
-                        q.push(_this.put_execute(dirtyRecords_1, tableName_1, _this.context.db, keys));
+            }
+            // execute / attach                
+            return this.context.execMany(q).then(function (r) {
+                return entity; // return the input object(s) with ids added                
+            }, function (e) {
+                for (var tableName_2 in tables) {
+                    var rollback = keys[tableName_2];
+                    if (rollback) {
+                        if (rollback.dbtsIndex)
+                            _this.context.rollbackKeys('dbtimestamp', rollback.dbtsIndex);
+                        _this.context.rollbackKeys(tableName_2, rollback.index);
                     }
                 }
-                // execute / attach
-                return _this.context.execMany(q).then(function (r) {
-                    // return just the ids for the root entitiy
-                    var ids = entities.map(function (value, index, array) {
-                        return value[_this.pk];
-                    });
-                    if (ids.length === 1)
-                        return ids[0];
-                    else
-                        return ids;
-                }, function (e) {
-                    for (var tableName_2 in tables) {
-                        var rollback = keys[tableName_2];
-                        if (rollback) {
-                            if (rollback.dbtsIndex)
-                                _this.context.rollbackKeys('dbtimestamp', rollback.dbtsIndex);
-                            _this.context.rollbackKeys(tableName_2, rollback.index);
-                        }
-                    }
-                    throw e;
-                });
+                throw e;
             });
-            /*
-            return Promise.all(q).then(()=>{
-            
-                // return just the ids for the root entitiy
-                var ids = entities.map((value: DBModel, index: number, array: DBModel[])=>{
-                    return value[this.pk];
-                });
-                if (ids.length === 1) return ids[0];
-                else return ids;
-            });    */
         };
         DBEntityInternal.prototype.put_calculateForeignKeys = function (table, entity, parent, parentTable) {
             for (var prop in entity) {
@@ -663,7 +636,6 @@ var WebEF;
             }
         };
         DBEntityInternal.prototype.put_calculateKeys = function (dirtyRecords, tableName) {
-            var _this = this;
             var pk = this.context.dbInstance.pk[tableName];
             // select all of the rows without a key
             var missingKey = [];
@@ -671,34 +643,33 @@ var WebEF;
                 if (dirtyRecords[i][pk] === undefined)
                     missingKey.push(i);
             }
-            // allocate keys
-            //var idIndex = this.context.allocateKeys(tableName, missingKey.length);
-            return this.context.allocateKeys(tableName, missingKey.length).then(function (idIndex) {
-                // insert keys
-                for (var i = 0; i < missingKey.length; i++) {
-                    dirtyRecords[missingKey[i]][pk] = idIndex + i;
+            // add optional isDeleted column
+            var isDeletedColumn = this.context.dbInstance.options[tableName].isdeleted;
+            if (isDeletedColumn) {
+                for (var i = 0; i < dirtyRecords.length; i++) {
+                    dirtyRecords[i][isDeletedColumn] = false;
                 }
-                // add dbTimestamp (optional)
-                var dbTimeStampColumn = _this.context.dbInstance.options[tableName].dbtimestamp;
-                var dbTimeStampIndex;
-                if (dbTimeStampColumn) {
-                    dbTimeStampIndex = _this.context.allocateKeys('dbtimestamp', dirtyRecords.length);
-                    for (var i = 0; i < dirtyRecords.length; i++) {
-                        dirtyRecords[i][dbTimeStampColumn] = dbTimeStampIndex + i;
-                    }
+            }
+            var promises = [];
+            var idIndex;
+            var dbTimeStampIndex;
+            // add dbTimestamp (optional)
+            var dbTimeStampColumn = this.context.dbInstance.options[tableName].dbtimestamp;
+            if (dbTimeStampColumn) {
+                dbTimeStampIndex = this.context.allocateKeys('dbtimestamp', dirtyRecords.length);
+                for (var i = 0; i < dirtyRecords.length; i++) {
+                    dirtyRecords[i][dbTimeStampColumn] = dbTimeStampIndex + i;
                 }
-                // add optional isDeleted column
-                var isDeletedColumn = _this.context.dbInstance.options[tableName].isdeleted;
-                if (isDeletedColumn) {
-                    for (var i = 0; i < dirtyRecords.length; i++) {
-                        dirtyRecords[i][isDeletedColumn] = false;
-                    }
-                }
-                return {
-                    index: idIndex,
-                    dbtsIndex: dbTimeStampIndex
-                };
-            });
+            }
+            // insert keys
+            idIndex = this.context.allocateKeys(tableName, missingKey.length);
+            for (var i = 0; i < missingKey.length; i++) {
+                dirtyRecords[missingKey[i]][pk] = idIndex + i;
+            }
+            return {
+                index: idIndex,
+                dbtsIndex: dbTimeStampIndex
+            };
         };
         DBEntityInternal.prototype.put_execute = function (dirtyRecords, tableName, db, keys) {
             //return new Promise((resolve,reject)=>{
