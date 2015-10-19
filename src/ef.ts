@@ -408,7 +408,7 @@ export module WebEF {
                 if (child){
                     if (nav.isArray){
                         if (undefined === parent[nav.columnName])
-                            parent[nav.columnName] = [child]
+                            parent[nav.columnName] = [child];
                         else 
                             parent[nav.columnName].push(child);
                     }
