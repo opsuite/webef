@@ -459,7 +459,7 @@ export module WebEF {
         private dbStateObject = {};
         public initState(state: any[]){
             for (var i=0;i<state.length; i++){
-                var key = state[i]['key'];
+                var key = state[i]['id'];
                 var value = state[i]['value'];
                 this.dbStateObject[key]=value;
             }

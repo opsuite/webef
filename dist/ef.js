@@ -388,7 +388,7 @@ var WebEF;
         };
         DBContextInternal.prototype.initState = function (state) {
             for (var i = 0; i < state.length; i++) {
-                var key = state[i]['key'];
+                var key = state[i]['id'];
                 var value = state[i]['value'];
                 this.dbStateObject[key] = value;
             }
