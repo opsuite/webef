@@ -137,7 +137,7 @@ var WebEF;
             // holds database state info such as dbtimestamp index
             schemaBuilder.createTable('__dbstate')
                 .addColumn('id', lf.Type.STRING)
-                .addColumn('value', lf.Type.INTEGER)
+                .addColumn('value', lf.Type.STRING)
                 .addPrimaryKey(['id']);
             DBSchemaInternal.instanceMap[dbName] =
                 new DBInstance(dbName, dbVersion, schemaBuilder, columns, nav, tables, fk, options, pk);
@@ -278,6 +278,12 @@ var WebEF;
             return n;
             */
         };
+        DBContext.prototype.getSetting = function (key) {
+            return this.context.getStateRaw(key);
+        };
+        DBContext.prototype.saveSetting = function (key, value) {
+            return this.context.setStateRaw(key, value);
+        };
         DBContext.prototype.DBEntity = function (tableName, navigationProperties) {
             return (new DBEntityInternal(this.context, tableName, navigationProperties, this.ready));
         };
@@ -388,9 +394,17 @@ var WebEF;
             }
         };
         DBContextInternal.prototype.getState = function (key) {
+            var v = this.dbStateObject[key];
+            return (is.undefined(v) || is.empty(v)) ? 0 : parseInt(this.dbStateObject[key]);
+        };
+        DBContextInternal.prototype.getStateRaw = function (key) {
             return this.dbStateObject[key];
         };
         DBContextInternal.prototype.setState = function (key, value) {
+            this.dbStateObject[key] = value.toString();
+            this.setDbState(key, value.toString());
+        };
+        DBContextInternal.prototype.setStateRaw = function (key, value) {
             this.dbStateObject[key] = value;
             this.setDbState(key, value);
         };
@@ -405,7 +419,7 @@ var WebEF;
                     .then(function (r) {
                     if (r && r[0]) {
                         var value = r[0]['value'];
-                        resolve(value);
+                        resolve(parseInt(value));
                     }
                     else {
                         resolve(0);
@@ -979,6 +993,14 @@ var WebEF;
         };
         is.undefined = function (x) {
             return x === undefined;
+        };
+        is.empty = function (x) {
+            if (is.object(x)) {
+                return Object.keys(x).length === 0;
+            }
+            if (is.string(x)) {
+                return x === '';
+            }
         };
         return is;
     })();

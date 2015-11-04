@@ -42,6 +42,9 @@ declare module WebEF {
         select(...columns: lf.schema.Column[]): lf.query.Select;
         getCheckpoint(): Promise<number>;
         DBEntity<T, E_CTX, T_CTX>(tableName: string, navigationProperties?: string[]): DBEntity<T, E_CTX, T_CTX>;
+        
+        getSetting(key:string):string;
+        saveSetting(key:string, value:string):void;
     }
 }
 declare module 'WebEF' {

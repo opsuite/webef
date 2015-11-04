@@ -186,9 +186,9 @@ export module WebEF {
             // holds database state info such as dbtimestamp index
             schemaBuilder.createTable('__dbstate')
                 .addColumn('id', lf.Type.STRING)
-                .addColumn('value', lf.Type.INTEGER)
+                .addColumn('value', lf.Type.STRING)
                 .addPrimaryKey(['id']);
-                
+            
             DBSchemaInternal.instanceMap[dbName] = 
                 new DBInstance(dbName, dbVersion, schemaBuilder, columns, nav, tables, fk, options, pk);                        
             
@@ -331,6 +331,12 @@ export module WebEF {
             */
         }
         
+        public getSetting(key:string):string {
+            return this.context.getStateRaw(key);
+        }       
+        public saveSetting(key:string, value:string){
+            return this.context.setStateRaw(key,value);
+        }
         
         public DBEntity<T, E_CTX, T_CTX>( tableName:string, navigationProperties?: string[] ){                
             return <DBEntity<T, E_CTX, T_CTX>>(new DBEntityInternal<T, E_CTX, T_CTX>(this.context, tableName, navigationProperties, this.ready));
@@ -458,15 +464,23 @@ export module WebEF {
                 this.dbStateObject[key]=value;
             }
         }
-        private getState(key: string) {
+        public getState(key: string) {
+            var v=this.dbStateObject[key];            
+            return (is.undefined(v) || is.empty(v)) ? 0 : parseInt(this.dbStateObject[key]);
+        }
+        public getStateRaw(key: string) {
             return this.dbStateObject[key];
         }
-        private setState(key: string, value: number){
+        public setState(key: string, value: any){
+            this.dbStateObject[key] =value.toString();
+            this.setDbState(key,value.toString());
+        }
+        public setStateRaw(key: string, value: string){
             this.dbStateObject[key] =value;
             this.setDbState(key,value);
-        }
+        }        
         
-        private dbState(key): Promise<number> {
+        private dbState(key: string): Promise<number> {
             return new Promise<number>((resolve,reject)=>{                
                 this.db.select()
                 .from(this.dbStateTable)
@@ -476,7 +490,7 @@ export module WebEF {
                 .then(r=>{
                     if (r && r[0]){
                         var value = r[0]['value'];
-                        resolve(value);
+                        resolve(parseInt(value));
                     }
                     else {
                         resolve(0);
@@ -484,10 +498,10 @@ export module WebEF {
                 })
             })            
         }
-        private setDbState(key,value): Promise<any> {
+        private setDbState(key:string , value:string): Promise<any> {
             var row= this.dbStateTable.createRow({
                     'id': key,
-                    'value': value              
+                    'value': value             
             });
             return this.db.insertOrReplace().into(this.dbStateTable).values([row]).exec();
         }
@@ -1127,6 +1141,14 @@ export module WebEF {
         public static undefined(x:any){
             return x === undefined;
         }
+        public static empty(x: any) {
+            if (is.object(x)) {
+                return Object.keys(x).length === 0;
+            }
+            if (is.string(x)) {
+                return x === '';
+            }
+        }        
     }
     
     class StringUtils {
