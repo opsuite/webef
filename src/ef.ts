@@ -41,23 +41,25 @@ export module WebEF {
     
     export class DBSchema {
         public static create (dbName: string, dbVersion: number, schema: Object): void;
-        public static create (jsonFilePath:string): void;     
+        //public static create (jsonFilePath:string): void;     
         public static create (...args: any[]): void {       
             var dbName:string, 
                 dbVersion:number, 
                 schema: Object;
                 
-            if (args.length === 3){
+            //if (args.length === 3){
                 dbName = args[0];
                 dbVersion = args[1];
                 schema = args[2]
-            }
+            //}
+            /*
             else if (args.length === 1) {
                 var data = Load.json(args[0]);
                 dbName = data.name;
                 dbVersion = data.version;
                 schema = data.schema;
             }
+            */
                     
             var schemaBuilder = lf.schema.create(dbName, dbVersion);        
             var columns:any = {};
@@ -227,18 +229,19 @@ export module WebEF {
         private loading: boolean = false;
         private loaded: boolean = false;
         
-        constructor(dbName: string, dbStoreType?: lf.schema.DataStoreType, dbSizeMB?: number) {       
+        constructor(dbName: string, dbStoreType?: lf.schema.DataStoreType, debugLoggingEnabled?: boolean) {       
             this.context = new DBContextInternal();
             this.context.dbStoreType = (dbStoreType===undefined) ? lf.schema.DataStoreType.INDEXED_DB : dbStoreType; 
             this.context.dbInstance = DBSchemaInternal.instanceMap[dbName];         
-            var dbSize = (dbSizeMB || 1) * 1024 * 1024; /* db size 1024*1024 = 1MB */
+            //var dbSize = (dbSizeMB || 1) * 1024 * 1024; /* db size 1024*1024 = 1MB */
+            this.context.DEBUG = debugLoggingEnabled;
             
             var self = this;
             this.ready = new Promise((resolve,reject)=>{
                 try{
                 this.context.dbInstance.schemaBuilder.connect({ 
-                    storeType: self.context.dbStoreType,
-                    webSqlDbSize: dbSize })
+                    storeType: self.context.dbStoreType })
+                    //,webSqlDbSize: dbSize })
                 .then(db => { 
                     this.context.db = db;
                     // get schema for tables
@@ -352,7 +355,14 @@ export module WebEF {
         public tables: lf.schema.Table[];
         public tx: lf.Transaction;
         public dbStateTable: lf.schema.Table;
+        public DEBUG:boolean;
         
+        private log(query) {
+            if (this.DEBUG){
+                console.log(query.toSql());
+                //console.log(query.explain());
+            }
+        }
         public compose(table: string, rows: Object[], fkmap: Object) : Object[] {
                     
             var map =fkmap[table];
@@ -532,6 +542,7 @@ export module WebEF {
         }
 
         public exec(q:any){
+            this.log(q);
             if (this.tx){
                 return this.tx.attach(q);
             }
@@ -541,6 +552,9 @@ export module WebEF {
         }   
         
         public execMany(q:any[]){
+            for (var i=0; i<q.length; i++){
+                this.log(q[i]);
+            }
             if (this.tx){            
                 q=q.reverse();
                 return this._execMany(q);
@@ -798,9 +812,7 @@ export module WebEF {
         }
         
         private put_execute(dirtyRecords: DBModel[], tableName:string, db: lf.Database, keys: Object){
-            //return new Promise((resolve,reject)=>{
-                
-                
+
                 // create rows                                
                 var table = this.context.tableSchemaMap[tableName];//db.getSchema().table(tableName);
                 var columns = this.context.dbInstance.schema[tableName];
@@ -818,17 +830,7 @@ export module WebEF {
                 // upsert query                          
                 var q = db.insertOrReplace().into(table).values(rows);
                 return q;
-                /*
-                this.context.exec(q).then(
-                    r=>{resolve(r)},
-                    e=>{
-                        var rollback = keys[tableName];
-                        if (rollback.dbtsIndex) this.context.rollbackKeys('dbtimestamp', rollback.dbtsIndex)                    
-                        this.context.rollbackKeys(tableName, rollback.index);
-                        reject(e);
-                    });
-                */
-            //})        
+     
         }
         
         public get(id: any): Promise<any> {        
@@ -902,16 +904,14 @@ export module WebEF {
             var query = columns ? db.select(...columns).from(table) : db.select().from(table);
             if (joinNavTables){
                 for (var i=0; i< this.join.length; i++){
-                    query.innerJoin(this.join[i].table, this.join[i].predicateleft.eq(this.join[i].predicateright))            
+                    //query.innerJoin(this.join[i].table, this.join[i].predicateleft.eq(this.join[i].predicateright))            
+                    query.leftOuterJoin(this.join[i].table, this.join[i].predicateleft.eq(this.join[i].predicateright))
                 }
             }
             return query;        
             
         }
-        
-        //public purge(): Promise<any> {
-        //    return this.delete(undefined, true);
-        //}
+
         public delete(id: any, forcePurge?:boolean): Promise<any> {
     
             return this._get(id, forcePurge).then(results=>{
@@ -951,18 +951,14 @@ export module WebEF {
                     if (dk=== undefined || forcePurge=== true) {
                         let q= db.delete().from(table).where(table[pk].in(keyList))
                         qq.push(q);              
-                        //q.push(db.delete().from(table).where(table[pk].in(keyList)).exec());
                     }
                     else{
                         let q = db.update(table).set(table[dk],true).where(table[pk].in(keyList))
                         qq.push(q);
-                        //q.push(db.update(table).set(table[dk],true).where(table[pk].in(keyList)).exec());
                     }
                         
                 }
-                
                 return this.context.execMany(qq);
-                //return Promise.all(promises);    
             });
         }    
     }
@@ -1065,7 +1061,6 @@ export module WebEF {
     
         //exec(): Promise<Array<Object>>
         public exec() : Promise<T[]> {
-            //return this.query.exec().then((results)=>{
             return this.context.exec(this.query).then((results)=>{    
                 var entities = this.context.compose(this.tableName, results, this.fkmap);
                 return entities;
@@ -1181,59 +1176,4 @@ export module WebEF {
             }
         }    
     }
-    
-    class Load {
-        private static cache = {};
-        
-        public static json(url: string, async?: boolean, cache?:boolean) : any {        
-    
-            if (cache){
-                var cachedResponse = this.cache[url];
-                if (cachedResponse){
-                    if (async){
-                        return new Promise((resolve,reject)=>{
-                            resolve(JSON.parse(cachedResponse));
-                        })
-                    }
-                    else {
-                        return JSON.parse(cachedResponse);
-                    }
-                }
-            }
-            
-            var xmlhttp = new XMLHttpRequest();
-            xmlhttp.onreadystatechange = function () {
-                if (xmlhttp.readyState == 4) {
-                    if (async) {
-                        if (xmlhttp.status == 200){
-                            
-                            if (cache) this.cache[url] = xmlhttp.responseText;
-                            return new Promise((resolve,reject)=>{
-                                resolve(JSON.parse(cachedResponse));
-                            });                        
-                        
-                        }
-                        else {
-                            return new Promise((resolve,reject)=>{
-                                reject(xmlhttp.status);
-                            });    
-                        }
-                    }
-                }
-            };
-            
-            
-            xmlhttp.open("GET", url, async);
-            xmlhttp.send();
-            if (!async){
-                if (xmlhttp.status == 200){
-                    if (cache) this.cache[url] = xmlhttp.responseText;
-                    return JSON.parse(xmlhttp.responseText);
-                }
-                else{
-                    return xmlhttp.status;
-                }
-            }
-        }    
-    }   
 }

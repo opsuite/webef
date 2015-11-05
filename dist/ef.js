@@ -15,23 +15,26 @@ var WebEF;
     var DBSchema = (function () {
         function DBSchema() {
         }
+        //public static create (jsonFilePath:string): void;     
         DBSchema.create = function () {
             var args = [];
             for (var _i = 0; _i < arguments.length; _i++) {
                 args[_i - 0] = arguments[_i];
             }
             var dbName, dbVersion, schema;
-            if (args.length === 3) {
-                dbName = args[0];
-                dbVersion = args[1];
-                schema = args[2];
-            }
+            //if (args.length === 3){
+            dbName = args[0];
+            dbVersion = args[1];
+            schema = args[2];
+            //}
+            /*
             else if (args.length === 1) {
                 var data = Load.json(args[0]);
                 dbName = data.name;
                 dbVersion = data.version;
                 schema = data.schema;
             }
+            */
             var schemaBuilder = lf.schema.create(dbName, dbVersion);
             var columns = {};
             var nav = {};
@@ -173,20 +176,20 @@ var WebEF;
         return DBInstance;
     })();
     var DBContext = (function () {
-        function DBContext(dbName, dbStoreType, dbSizeMB) {
+        function DBContext(dbName, dbStoreType, debugLoggingEnabled) {
             var _this = this;
             this.loading = false;
             this.loaded = false;
             this.context = new DBContextInternal();
             this.context.dbStoreType = (dbStoreType === undefined) ? lf.schema.DataStoreType.INDEXED_DB : dbStoreType;
             this.context.dbInstance = DBSchemaInternal.instanceMap[dbName];
-            var dbSize = (dbSizeMB || 1) * 1024 * 1024; /* db size 1024*1024 = 1MB */
+            //var dbSize = (dbSizeMB || 1) * 1024 * 1024; /* db size 1024*1024 = 1MB */
+            this.context.DEBUG = debugLoggingEnabled;
             var self = this;
             this.ready = new Promise(function (resolve, reject) {
                 try {
                     _this.context.dbInstance.schemaBuilder.connect({
-                        storeType: self.context.dbStoreType,
-                        webSqlDbSize: dbSize })
+                        storeType: self.context.dbStoreType })
                         .then(function (db) {
                         _this.context.db = db;
                         // get schema for tables
@@ -296,6 +299,11 @@ var WebEF;
             // synchronous versions of dbState/setDbState
             this.dbStateObject = {};
         }
+        DBContextInternal.prototype.log = function (query) {
+            if (this.DEBUG) {
+                console.log(query.toSql());
+            }
+        };
         DBContextInternal.prototype.compose = function (table, rows, fkmap) {
             var map = fkmap[table];
             // if there are no foreign keys there is nothing more to compose
@@ -457,6 +465,7 @@ var WebEF;
             return this.db.delete().from(this.dbStateTable).where(this.dbStateTable['id'].eq(key)).exec();
         };
         DBContextInternal.prototype.exec = function (q) {
+            this.log(q);
             if (this.tx) {
                 return this.tx.attach(q);
             }
@@ -465,6 +474,9 @@ var WebEF;
             }
         };
         DBContextInternal.prototype.execMany = function (q) {
+            for (var i = 0; i < q.length; i++) {
+                this.log(q[i]);
+            }
             if (this.tx) {
                 q = q.reverse();
                 return this._execMany(q);
@@ -686,7 +698,6 @@ var WebEF;
             };
         };
         DBEntityInternal.prototype.put_execute = function (dirtyRecords, tableName, db, keys) {
-            //return new Promise((resolve,reject)=>{
             // create rows                                
             var table = this.context.tableSchemaMap[tableName]; //db.getSchema().table(tableName);
             var columns = this.context.dbInstance.schema[tableName];
@@ -703,17 +714,6 @@ var WebEF;
             // upsert query                          
             var q = db.insertOrReplace().into(table).values(rows);
             return q;
-            /*
-            this.context.exec(q).then(
-                r=>{resolve(r)},
-                e=>{
-                    var rollback = keys[tableName];
-                    if (rollback.dbtsIndex) this.context.rollbackKeys('dbtimestamp', rollback.dbtsIndex)
-                    this.context.rollbackKeys(tableName, rollback.index);
-                    reject(e);
-                });
-            */
-            //})        
         };
         DBEntityInternal.prototype.get = function (id) {
             var _this = this;
@@ -774,14 +774,12 @@ var WebEF;
             var query = columns ? db.select.apply(db, columns).from(table) : db.select().from(table);
             if (joinNavTables) {
                 for (var i = 0; i < this.join.length; i++) {
-                    query.innerJoin(this.join[i].table, this.join[i].predicateleft.eq(this.join[i].predicateright));
+                    //query.innerJoin(this.join[i].table, this.join[i].predicateleft.eq(this.join[i].predicateright))            
+                    query.leftOuterJoin(this.join[i].table, this.join[i].predicateleft.eq(this.join[i].predicateright));
                 }
             }
             return query;
         };
-        //public purge(): Promise<any> {
-        //    return this.delete(undefined, true);
-        //}
         DBEntityInternal.prototype.delete = function (id, forcePurge) {
             var _this = this;
             return this._get(id, forcePurge).then(function (results) {
@@ -824,7 +822,6 @@ var WebEF;
                     }
                 }
                 return _this.context.execMany(qq);
-                //return Promise.all(promises);    
             });
         };
         return DBEntityInternal;
@@ -920,7 +917,6 @@ var WebEF;
         //exec(): Promise<Array<Object>>
         QueryService.prototype.exec = function () {
             var _this = this;
-            //return this.query.exec().then((results)=>{
             return this.context.exec(this.query).then(function (results) {
                 var entities = _this.context.compose(_this.tableName, results, _this.fkmap);
                 return entities;
@@ -1040,58 +1036,6 @@ var WebEF;
             }
         };
         return PromiseUtils;
-    })();
-    var Load = (function () {
-        function Load() {
-        }
-        Load.json = function (url, async, cache) {
-            if (cache) {
-                var cachedResponse = this.cache[url];
-                if (cachedResponse) {
-                    if (async) {
-                        return new Promise(function (resolve, reject) {
-                            resolve(JSON.parse(cachedResponse));
-                        });
-                    }
-                    else {
-                        return JSON.parse(cachedResponse);
-                    }
-                }
-            }
-            var xmlhttp = new XMLHttpRequest();
-            xmlhttp.onreadystatechange = function () {
-                if (xmlhttp.readyState == 4) {
-                    if (async) {
-                        if (xmlhttp.status == 200) {
-                            if (cache)
-                                this.cache[url] = xmlhttp.responseText;
-                            return new Promise(function (resolve, reject) {
-                                resolve(JSON.parse(cachedResponse));
-                            });
-                        }
-                        else {
-                            return new Promise(function (resolve, reject) {
-                                reject(xmlhttp.status);
-                            });
-                        }
-                    }
-                }
-            };
-            xmlhttp.open("GET", url, async);
-            xmlhttp.send();
-            if (!async) {
-                if (xmlhttp.status == 200) {
-                    if (cache)
-                        this.cache[url] = xmlhttp.responseText;
-                    return JSON.parse(xmlhttp.responseText);
-                }
-                else {
-                    return xmlhttp.status;
-                }
-            }
-        };
-        Load.cache = {};
-        return Load;
     })();
 })(WebEF = exports.WebEF || (exports.WebEF = {}));
 var window=window||self;window.WebEF=WebEF;

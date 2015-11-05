@@ -30,12 +30,11 @@ declare module WebEF {
     }
     
     export class DBSchema {
-        static create(dbName: string, dbVersion: number, schema: Object): void;
-        static create(jsonFilePath: string): void;
+        static create(dbName: string, dbVersion: number, schema: Object): void;        
     }
     export class DBContext<E_CTX> {
         ready: Promise<any>;
-        constructor(dbName: string, dbStoreType?: lf.schema.DataStoreType, dbSizeMB?: number);
+        constructor(dbName: string, dbStoreType?: lf.schema.DataStoreType, debugLoggingEnabled?: boolean);
         purge(): Promise<any>;
         transaction(fn: (tx: lf.Transaction, context: E_CTX) => Promise<any>): Promise<any>;
         tables: E_CTX;
