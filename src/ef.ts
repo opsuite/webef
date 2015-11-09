@@ -422,16 +422,27 @@ export module WebEF {
                 
                 // bug? in some cases child is undefined
                 if (child){
-                    if (nav.isArray){
-                        if (undefined === parent[nav.columnName])
-                            parent[nav.columnName] = [child];
-                        else 
-                            parent[nav.columnName].push(child);
+                    
+                    // because of cross join in entity selection, the child may be all nulls
+                    var notNull=false;
+                    for (var prop in child){
+                        if (child[prop] !== null){
+                            notNull=true;
+                            break;
+                        }
                     }
-                    else {
-                        parent[nav.columnName] = child;
+                    if (notNull){
+                        if (nav.isArray){
+                            if (undefined === parent[nav.columnName])
+                                parent[nav.columnName] = [child];
+                            else 
+                                parent[nav.columnName].push(child);
+                        }
+                        else {
+                            parent[nav.columnName] = child;
+                        }
+                        this.compose_(nav.tableName, row, child)
                     }
-                    this.compose_(nav.tableName, row, child)
                 }
                 
             }
