@@ -579,15 +579,19 @@ var WebEF;
                     var tableName = _this.navigationTables[i];
                     _this.tblmap[tableName] = _this.context.tableSchemaMap[tableName]; //db.getSchema().table(tableName);                        
                 }
-                for (var i = 0; i < _this.navigationTables.length; i++) {
-                    var tableName = _this.navigationTables[i];
+                //for (var i=0; i<this.navigationTables.length; i++){ 
+                //    var tableName = this.navigationTables[i];
+                for (var i = 0; i < _this.tables.length; i++) {
+                    var tableName = _this.tables[i];
                     var fk = _this.fkmap[tableName];
-                    var p = {
-                        table: _this.tblmap[tableName],
-                        predicateleft: _this.tblmap[fk.table2][fk.column2],
-                        predicateright: _this.tblmap[fk.table1][fk.column1]
-                    };
-                    _this.join.push(p);
+                    if (fk) {
+                        var p = {
+                            table: _this.tblmap[tableName],
+                            predicateleft: _this.tblmap[fk.table2][fk.column2],
+                            predicateright: _this.tblmap[fk.table1][fk.column1]
+                        };
+                        _this.join.push(p);
+                    }
                 }
             });
         }
@@ -614,23 +618,31 @@ var WebEF;
             }
             // put rows - get queries
             var q = [];
-            for (var i = 0; i < this.tables.length; i++) {
-                var tableName_1 = this.tables[i];
-                var dirtyRecords_1 = tables[tableName_1];
+            /*
+            for (var i=0; i< this.tables.length; i++){ // use this.tables since its presorted for inserts
+                let tableName = this.tables[i];
+                let dirtyRecords = tables[tableName];
+                if (dirtyRecords.length > 0){
+                    q.push(this.put_execute(dirtyRecords, tableName, this.context.db, keys));
+                }
+            }
+            */
+            for (var tableName in tables) {
+                var dirtyRecords_1 = tables[tableName];
                 if (dirtyRecords_1.length > 0) {
-                    q.push(this.put_execute(dirtyRecords_1, tableName_1, this.context.db, keys));
+                    q.push(this.put_execute(dirtyRecords_1, tableName, this.context.db, keys));
                 }
             }
             // execute / attach                
             return this.context.execMany(q).then(function (r) {
                 return entity; // return the input object(s) with ids added                
             }, function (e) {
-                for (var tableName_2 in tables) {
-                    var rollback = keys[tableName_2];
+                for (var tableName_1 in tables) {
+                    var rollback = keys[tableName_1];
                     if (rollback) {
                         if (rollback.dbtsIndex)
                             _this.context.rollbackKeys('dbtimestamp', rollback.dbtsIndex);
-                        _this.context.rollbackKeys(tableName_2, rollback.index);
+                        _this.context.rollbackKeys(tableName_1, rollback.index);
                     }
                 }
                 throw e;

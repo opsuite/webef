@@ -675,15 +675,19 @@ export module WebEF {
                     this.tblmap[tableName] = this.context.tableSchemaMap[tableName];//db.getSchema().table(tableName);                        
                 }
         
-                for (var i=0; i<this.navigationTables.length; i++){ 
-                    var tableName = this.navigationTables[i];
+                //for (var i=0; i<this.navigationTables.length; i++){ 
+                //    var tableName = this.navigationTables[i];
+                for (var i=0; i<this.tables.length; i++){         
+                    var tableName = this.tables[i];                    
                     var fk = this.fkmap[tableName];       
-                    var p = { 
-                        table: this.tblmap[tableName],
-                        predicateleft: this.tblmap[fk.table2][fk.column2],
-                        predicateright: this.tblmap[fk.table1][fk.column1]
-                    };
-                    this.join.push(p);
+                    if (fk){
+                        var p = { 
+                            table: this.tblmap[tableName],
+                            predicateleft: this.tblmap[fk.table2][fk.column2],
+                            predicateright: this.tblmap[fk.table1][fk.column1]
+                        };
+                        this.join.push(p);
+                    }
                 }               
             }); 
     
@@ -712,6 +716,7 @@ export module WebEF {
                             
             // put rows - get queries
             var q = [];
+            /*            
             for (var i=0; i< this.tables.length; i++){ // use this.tables since its presorted for inserts
                 let tableName = this.tables[i];            
                 let dirtyRecords = tables[tableName];
@@ -719,6 +724,13 @@ export module WebEF {
                     q.push(this.put_execute(dirtyRecords, tableName, this.context.db, keys));                                        
                 }                   
             } 
+            */
+            for (var tableName in tables){
+                let dirtyRecords = tables[tableName];
+                if (dirtyRecords.length > 0){                    
+                    q.push(this.put_execute(dirtyRecords, tableName, this.context.db, keys));                                        
+                }         
+            }
             
             // execute / attach                
             return this.context.execMany(q).then(                
