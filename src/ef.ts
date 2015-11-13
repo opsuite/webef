@@ -648,7 +648,7 @@ export module WebEF {
                     var nav=context.dbInstance.nav[value];
                     for( var prop in nav){
                         if (is.property(nav,prop)){
-                            if (!navExtended[prop]){
+                            if (!navExtended[prop] && this.navigationProperties.indexOf(nav[prop]['tableName']) !== -1){
                                 navExtended[prop] = nav[prop];
                             }        
                         }
