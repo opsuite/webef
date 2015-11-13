@@ -352,27 +352,35 @@ var WebEF;
             for (var column in navs) {
                 var nav = navs[column];
                 var child = row[nav.tableName];
+                var pk = this.dbInstance.pk[nav.tableName];
                 // bug? in some cases child is undefined
                 if (child) {
                     // because of cross join in entity selection, the child may be all nulls
-                    var notNull = false;
-                    for (var prop in child) {
-                        if (child[prop] !== null) {
-                            notNull = true;
-                            break;
-                        }
-                    }
+                    var id = child[pk];
+                    var notNull = (id !== null);
                     if (notNull) {
                         if (nav.isArray) {
-                            if (undefined === parent[nav.columnName])
+                            var array = parent[nav.columnName];
+                            if (is.undefined(array)) {
                                 parent[nav.columnName] = [child];
-                            else
-                                parent[nav.columnName].push(child);
+                                this.compose_(nav.tableName, row, child);
+                            }
+                            else {
+                                var keys = array.map(function (value, index) { return value[pk]; });
+                                var index = keys.indexOf(id);
+                                if (index === -1) {
+                                    array.push(child);
+                                    this.compose_(nav.tableName, row, child);
+                                }
+                                else {
+                                    this.compose_(nav.tableName, row, array[index]);
+                                }
+                            }
                         }
                         else {
                             parent[nav.columnName] = child;
+                            this.compose_(nav.tableName, row, child);
                         }
-                        this.compose_(nav.tableName, row, child);
                     }
                 }
             }
@@ -507,6 +515,27 @@ var WebEF;
         };
         return DBContextInternal;
     })();
+    function recurse(variant, cb, depth, parentKey) {
+        if (!depth)
+            depth = 0;
+        if (depth === 0 || (parentKey && !cb(parentKey, variant))) {
+            depth++;
+            if (is.array(variant)) {
+                for (var i = 0; i < variant.length; i++) {
+                    var value = variant[i];
+                    recurse(value, cb, depth);
+                }
+            }
+            else if (is.object(variant)) {
+                for (var key in variant) {
+                    if (is.property(variant, key)) {
+                        var value = variant[key];
+                        recurse(value, cb, depth, key);
+                    }
+                }
+            }
+        }
+    }
     var DBEntityInternal = (function () {
         function DBEntityInternal(context, tableName, navigationProperties, ready) {
             var _this = this;
@@ -520,9 +549,23 @@ var WebEF;
             this.tableName = tableName;
             this.navigationProperties = navigationProperties || [];
             this.nav = context.dbInstance.nav[tableName];
+            // quick and dirty clone
+            var navExtended = JSON.parse(JSON.stringify(this.nav));
+            recurse(navExtended, function (key, value) {
+                if (key === 'tableName') {
+                    var nav = context.dbInstance.nav[value];
+                    for (var prop in nav) {
+                        if (is.property(nav, prop)) {
+                            if (!navExtended[prop]) {
+                                navExtended[prop] = nav[prop];
+                            }
+                        }
+                    }
+                }
+            });
             this.pk = context.dbInstance.pk[tableName];
-            for (var column in this.nav)
-                this.navigationTables.push(this.nav[column].tableName);
+            for (var column in navExtended)
+                this.navigationTables.push(navExtended[column].tableName);
             for (var i = 0; i < this.navigationTables.length; i++)
                 this.tables.push(this.navigationTables[i]);
             this.tables.push(this.tableName);
@@ -535,18 +578,22 @@ var WebEF;
                     var fk = fkeys[column];
                     if (this.tables.indexOf(fk.fkTable) !== -1) {
                         //fkmap[tableName].push(fk);
-                        this.fkmap[tableName] = {
-                            table1: tableName,
-                            column1: column,
-                            table2: fk.fkTable,
-                            column2: fk.fkColumn
-                        };
-                        this.fkmap[fk.fkTable] = {
-                            table1: fk.fkTable,
-                            column1: fk.fkColumn,
-                            table2: tableName,
-                            column2: column
-                        };
+                        if (!this.fkmap[tableName]) {
+                            this.fkmap[tableName] = {
+                                table1: tableName,
+                                column1: column,
+                                table2: fk.fkTable,
+                                column2: fk.fkColumn
+                            };
+                        }
+                        if (!this.fkmap[fk.fkTable]) {
+                            this.fkmap[fk.fkTable] = {
+                                table1: fk.fkTable,
+                                column1: fk.fkColumn,
+                                table2: tableName,
+                                column2: column
+                            };
+                        }
                     }
                 }
             }
@@ -579,10 +626,8 @@ var WebEF;
                     var tableName = _this.navigationTables[i];
                     _this.tblmap[tableName] = _this.context.tableSchemaMap[tableName]; //db.getSchema().table(tableName);                        
                 }
-                //for (var i=0; i<this.navigationTables.length; i++){ 
-                //    var tableName = this.navigationTables[i];
-                for (var i = 0; i < _this.tables.length; i++) {
-                    var tableName = _this.tables[i];
+                for (var i = 0; i < _this.navigationTables.length; i++) {
+                    var tableName = _this.navigationTables[i];
                     var fk = _this.fkmap[tableName];
                     if (fk) {
                         var p = {
@@ -618,31 +663,31 @@ var WebEF;
             }
             // put rows - get queries
             var q = [];
+            for (var i = 0; i < this.tables.length; i++) {
+                var tableName_1 = this.tables[i];
+                var dirtyRecords_1 = tables[tableName_1];
+                if (dirtyRecords_1.length > 0) {
+                    q.push(this.put_execute(dirtyRecords_1, tableName_1, this.context.db, keys));
+                }
+            }
             /*
-            for (var i=0; i< this.tables.length; i++){ // use this.tables since its presorted for inserts
-                let tableName = this.tables[i];
+            for (var tableName in tables){
                 let dirtyRecords = tables[tableName];
                 if (dirtyRecords.length > 0){
                     q.push(this.put_execute(dirtyRecords, tableName, this.context.db, keys));
                 }
             }
             */
-            for (var tableName in tables) {
-                var dirtyRecords_1 = tables[tableName];
-                if (dirtyRecords_1.length > 0) {
-                    q.push(this.put_execute(dirtyRecords_1, tableName, this.context.db, keys));
-                }
-            }
             // execute / attach                
             return this.context.execMany(q).then(function (r) {
                 return entity; // return the input object(s) with ids added                
             }, function (e) {
-                for (var tableName_1 in tables) {
-                    var rollback = keys[tableName_1];
+                for (var tableName_2 in tables) {
+                    var rollback = keys[tableName_2];
                     if (rollback) {
                         if (rollback.dbtsIndex)
                             _this.context.rollbackKeys('dbtimestamp', rollback.dbtsIndex);
-                        _this.context.rollbackKeys(tableName_1, rollback.index);
+                        _this.context.rollbackKeys(tableName_2, rollback.index);
                     }
                 }
                 throw e;
@@ -1019,6 +1064,9 @@ var WebEF;
             if (is.string(x)) {
                 return x === '';
             }
+        };
+        is.property = function (obj, property) {
+            return Object.prototype.hasOwnProperty.call(obj, property);
         };
         return is;
     })();

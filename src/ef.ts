@@ -414,34 +414,42 @@ export module WebEF {
         } 
         
         private compose_(table:string, row: Object, parent: Object) {
-            var navs = this.dbInstance.nav[table];
+            var navs = this.dbInstance.nav[table];            
             for (var column in navs)
             {
                 var nav = navs[column];
                 var child = row[nav.tableName];
+                var pk = this.dbInstance.pk[nav.tableName];
                 
                 // bug? in some cases child is undefined
                 if (child){
                     
                     // because of cross join in entity selection, the child may be all nulls
-                    var notNull=false;
-                    for (var prop in child){
-                        if (child[prop] !== null){
-                            notNull=true;
-                            break;
-                        }
-                    }
+                    var id = child[pk];
+                    var notNull = (id !== null);
                     if (notNull){
                         if (nav.isArray){
-                            if (undefined === parent[nav.columnName])
+                            var array: any[] = parent[nav.columnName];
+                            if (is.undefined(array)){
                                 parent[nav.columnName] = [child];
-                            else 
-                                parent[nav.columnName].push(child);
+                                this.compose_(nav.tableName, row, child)
+                            }
+                            else {
+                                var keys = array.map((value, index)=>{ return value[pk] });
+                                var index = keys.indexOf(id);
+                                if (index === -1){
+                                    array.push(child);
+                                    this.compose_(nav.tableName, row, child);
+                                }
+                                else {
+                                    this.compose_(nav.tableName, row, array[index]);
+                                }
+                            }
                         }
                         else {
                             parent[nav.columnName] = child;
-                        }
-                        this.compose_(nav.tableName, row, child)
+                            this.compose_(nav.tableName, row, child)
+                        }                        
                     }
                 }
                 
@@ -590,6 +598,27 @@ export module WebEF {
         predicateright: lf.schema.Column;
     }
     
+    function recurse(variant:any, cb:(key:string, value:any)=>void, depth?:number, parentKey?:string){    
+        if (!depth) depth=0;           
+        if (depth===0 || (parentKey && !cb(parentKey,variant))){
+            depth++;
+            if (is.array(variant)){
+                for (var i=0; i<variant.length; i++){
+                    var value = variant[i];
+                    recurse(value, cb, depth);
+                }
+            }        
+            else if (is.object(variant)) {
+                for (var key in variant){
+                    if (is.property(variant,key)){
+                        var value = variant[key];        
+                        recurse(value, cb, depth, key);
+                    }
+                }     
+            }
+        }
+    }
+    
     class DBEntityInternal<T, E_CTX, T_CTX> implements DBEntity<T, E_CTX, T_CTX> {
     
         private context : DBContextInternal;
@@ -611,9 +640,25 @@ export module WebEF {
             this.tableName = tableName;        
             this.navigationProperties = navigationProperties || [];
             this.nav = context.dbInstance.nav[tableName];
+            
+            // quick and dirty clone
+            var navExtended = JSON.parse(JSON.stringify(this.nav));
+            recurse(navExtended, (key,value)=>{
+                if (key==='tableName'){                     
+                    var nav=context.dbInstance.nav[value];
+                    for( var prop in nav){
+                        if (is.property(nav,prop)){
+                            if (!navExtended[prop]){
+                                navExtended[prop] = nav[prop];
+                            }        
+                        }
+                    }
+                }
+            });
+            
             this.pk = context.dbInstance.pk[tableName];
-            for (var column in this.nav)
-                this.navigationTables.push( this.nav[column].tableName);
+            for (var column in navExtended)
+                this.navigationTables.push( navExtended[column].tableName);
             for (var i=0; i<this.navigationTables.length; i++)
                 this.tables.push(this.navigationTables[i]);
             this.tables.push(this.tableName);
@@ -629,18 +674,22 @@ export module WebEF {
                     var fk = fkeys[column];
                     if (this.tables.indexOf(fk.fkTable) !== -1){
                         //fkmap[tableName].push(fk);
-                        this.fkmap[tableName]={
-                            table1: tableName,
-                            column1: column,
-                            table2: fk.fkTable,
-                            column2: fk.fkColumn
-                        };
-                        this.fkmap[fk.fkTable]={
-                            table1: fk.fkTable,
-                            column1: fk.fkColumn,
-                            table2: tableName,
-                            column2: column
-                        };
+                        if (!this.fkmap[tableName]){
+                            this.fkmap[tableName]={
+                                table1: tableName,
+                                column1: column,
+                                table2: fk.fkTable,
+                                column2: fk.fkColumn
+                            };
+                        }
+                        if (!this.fkmap[fk.fkTable]){
+                            this.fkmap[fk.fkTable]={
+                                table1: fk.fkTable,
+                                column1: fk.fkColumn,
+                                table2: tableName,
+                                column2: column
+                            };
+                        }
                     }               
                 }
             }
@@ -675,10 +724,8 @@ export module WebEF {
                     this.tblmap[tableName] = this.context.tableSchemaMap[tableName];//db.getSchema().table(tableName);                        
                 }
         
-                //for (var i=0; i<this.navigationTables.length; i++){ 
-                //    var tableName = this.navigationTables[i];
-                for (var i=0; i<this.tables.length; i++){         
-                    var tableName = this.tables[i];                    
+                for (var i=0; i<this.navigationTables.length; i++){ 
+                    var tableName = this.navigationTables[i];                  
                     var fk = this.fkmap[tableName];       
                     if (fk){
                         var p = { 
@@ -715,8 +762,7 @@ export module WebEF {
             }
                             
             // put rows - get queries
-            var q = [];
-            /*            
+            var q = [];                        
             for (var i=0; i< this.tables.length; i++){ // use this.tables since its presorted for inserts
                 let tableName = this.tables[i];            
                 let dirtyRecords = tables[tableName];
@@ -724,13 +770,14 @@ export module WebEF {
                     q.push(this.put_execute(dirtyRecords, tableName, this.context.db, keys));                                        
                 }                   
             } 
-            */
+            /*
             for (var tableName in tables){
                 let dirtyRecords = tables[tableName];
                 if (dirtyRecords.length > 0){                    
                     q.push(this.put_execute(dirtyRecords, tableName, this.context.db, keys));                                        
                 }         
             }
+            */
             
             // execute / attach                
             return this.context.execMany(q).then(                
@@ -1166,7 +1213,10 @@ export module WebEF {
             if (is.string(x)) {
                 return x === '';
             }
-        }        
+        } 
+        public static property(obj: any, property: string){
+            return Object.prototype.hasOwnProperty.call(obj,property);
+        }       
     }
     
     class StringUtils {
